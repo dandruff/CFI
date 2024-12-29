@@ -5,7 +5,7 @@ using CFI.Models;
 
 namespace CFI;
 
-public static class RepoManager
+public static class Utilities
 {
     // A pretty basic method that tries to get the name from the URL
     private static string AttemptGetPackageName(string url)
@@ -52,7 +52,7 @@ public static class RepoManager
                 return repoType;
             });
 
-    public static async Task Clone(ExternalRepo repo, string directory)
+    public static async Task CloneRepoAsync(ExternalRepo repo, string directory)
     {
         repo.ProjectName = AttemptGetPackageName(repo.Url);
         string? commit = repo.Commit;

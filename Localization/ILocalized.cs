@@ -3,6 +3,11 @@ namespace CFI.Localization;
 public interface ILocalized
 {
     /// <summary>
+    /// --help message
+    /// </summary>
+    string HELP { get; }
+
+    /// <summary>
     /// Failed to copy folder {external} to {addon}
     /// </summary>
     string ERROR_COPY_FOLDER_FAILED { get; }

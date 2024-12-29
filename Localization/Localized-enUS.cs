@@ -10,6 +10,20 @@ public class Localized_enUS : ILocalized
         if (fallback is not null) Console.WriteLine($"Warning: Localization for {fallback} not found. Falling back to en-US.");
     }
 
+    string ILocalized.HELP => @"
+  Usage: cfi [options]
+
+  Options:
+    -p, --pkgmeta <path>    Use path as the pkgmeta file, otherwise it will look for a .pkgmeta file in the current directory
+    -l, --links             Use symbolic links (junctions on Windows) instead of copying (ignores 'ignored' files, be careful)
+    -e, --external <dir>    Use directory for cloning external repo (default: ./.externals)
+    -a, --addon <dir>       Use directory for packaging the addon (default: ./.addon)
+    -w, --wow <dir>         Use directory as the World of Warcraft addons folder, instead of WOW_ADDONS env var, to install the addon
+    -v, --version           Show version
+    -q, --quiet             Don't show any output, except errors
+    -h, --help              Show help
+";
+
     string ILocalized.ERROR_COPY_FOLDER_FAILED => "Failed to copy folder {external} to {addon}";
 
     string ILocalized.ERROR_FAILED_REPO_CLONE => "Failed to clone repository {repo}";

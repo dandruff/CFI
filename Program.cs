@@ -3,95 +3,44 @@ using CFI.Localization;
 using CFI.Models;
 using CFI.YamlHelpers;
 
-const string VERSION = "0.1.0";
-const string HELP = @"
-    Usage: cfi [options]
+const string VERSION = "0.2.0";
 
-    Options:
-        -p, --pkgmeta <path>    Use path as the pkgmeta file, otherwise it will look for a .pkgmeta file in the current directory
-        -l, --links             Use symbolic links (junctions on Windows) instead of copying (ignores 'ignored' files, be careful)
-        -e, --external <dir>    Use directory for cloning external repo (default: ./.externals)
-        -a, --addon <dir>       Use directory for packaging the addon (default: ./.addon)
-        -w, --wow <dir>         Use directory as the World of Warcraft addons folder, instead of WOW_ADDONS env var, to install the addon
-        -v, --version           Show version
-        -q, --quiet             Don't show any output, except errors
-        -h, --help              Show help";
-
-string cd = Environment.CurrentDirectory;
-string? pkgmetaPath = null;
-bool useLinks = false;
-string externalDir = "./.externals";
-string addonDir = "./.addon";
-string? wowDir = Environment.GetEnvironmentVariable("WOW_ADDONS");
-bool quiet = false;
-
-
-for (int i = 0; i < args.Length; i += 1)
+// Check if the user wants to see the help or version
+if (args.Contains("-h") || args.Contains("--help"))
 {
-    string arg = args[i];
-    string? nextArg = i + 1 < args.Length ? args[i + 1] : null;
-
-    switch (arg)
-    {
-        case "-p":
-        case "--pkgmeta":
-            pkgmetaPath = nextArg;
-            break;
-        case "-l":
-        case "--links":
-            useLinks = true;
-            break;
-        case "-e":
-        case "--external":
-            externalDir = nextArg ?? externalDir;
-            break;
-        case "-a":
-        case "--addon":
-            addonDir = nextArg ?? addonDir;
-            break;
-        case "-w":
-        case "--wow":
-            wowDir = nextArg;
-            break;
-        case "-q":
-        case "--quiet":
-            quiet = true;
-            break;
-        case "-h":
-        case "--help":
-            Console.WriteLine(HELP);
-            Environment.Exit(0);
-            break;
-        case "-v":
-        case "--version":
-            Console.WriteLine(VERSION);
-            Environment.Exit(0);
-            break;
-    }
+    Console.WriteLine(Localizations.Current.HELP);
+    Environment.Exit(0);
 }
+if (args.Contains("-v") || args.Contains("--version"))
+{
+    Console.WriteLine(VERSION);
+    Environment.Exit(0);
+}
+
+// Parse the arguments to build our config
+Config config = Config.FromParams(args);
 
 // Setup the logger (Serilog)
 LoggerConfiguration _config = new LoggerConfiguration()
     .WriteTo.Console(
         theme: Serilog.Sinks.SystemConsole.Themes.AnsiConsoleTheme.Code,
         outputTemplate: "{Level:u4}: {Message:lj}{NewLine}{Exception}");
-if (quiet) _config.MinimumLevel.Error();
+if (config.Quiet) _config.MinimumLevel.Error();
 Log.Logger = _config.CreateLogger();
 
 // Find the pkgmeta file if not provided as an argument
-pkgmetaPath ??= Directory.GetFiles(cd, "*.pkgmeta").FirstOrDefault();
+config.PackageMetaPath ??= Directory.GetFiles(Environment.CurrentDirectory, "*.pkgmeta").FirstOrDefault();
 
 // Check if the pkgmeta file exists
-if (pkgmetaPath is null || string.IsNullOrEmpty(pkgmetaPath) || !File.Exists(pkgmetaPath))
+if (config.PackageMetaPath is null || string.IsNullOrEmpty(config.PackageMetaPath) || !File.Exists(config.PackageMetaPath))
 {
     Log.Fatal(Localizations.Current.FATAL_COULDNT_FIND_PKGMETA);
     Environment.Exit(1);
 }
 
-if (wowDir is null || string.IsNullOrEmpty(wowDir))
-{
+// Check to see if the WoW directory is valid, if not, alert the user we won't install
+if (!config.IsWoWDirValid)
     Log.Error(Localizations.Current.ERROR_WOW_ADDON_DIRECTORY_NOT_FOUND);
-}
 
 // Create a deserializer with the static context/code gen (AoT support)
 var deserializer = new StaticDeserializerBuilder(YamlStaticContext.Instance)
@@ -99,7 +48,7 @@ var deserializer = new StaticDeserializerBuilder(YamlStaticContext.Instance)
     .Build();
 
 // Open the pkgmeta file and deserialize it
-using TextReader reader = File.OpenText(pkgmetaPath!);
+using TextReader reader = File.OpenText(config.PackageMetaPath!);
 PackageMetadata model = deserializer.Deserialize<PackageMetadata>(reader);
 
 // Manually add .files to ignore
@@ -108,30 +57,30 @@ if (model.Ignore is null)
 else
     model.Ignore = [.. model.Ignore, ".*"];
 
-
+// Print the package name
 Log.Information(Localizations.Current.INFO_LOADED_PKGMETA, model.PackageAs);
 
 // clone the repos into the .externals directory
-if (!Directory.Exists(externalDir))
+if (!Directory.Exists(config.ExternalDir))
 {
-    Log.Information(Localizations.Current.INFO_CREATING_EXTERNAL_REPO_DIRECTORY, externalDir);
-    _ = Directory.CreateDirectory(externalDir);
+    Log.Information(Localizations.Current.INFO_CREATING_EXTERNAL_REPO_DIRECTORY, config.ExternalDir);
+    _ = Directory.CreateDirectory(config.ExternalDir);
 }
 foreach (var external in model.Externals ?? [])
-    await RepoManager.Clone(external.Value, externalDir);
+    await Utilities.CloneRepoAsync(external.Value, config.ExternalDir);
 
 // package addon into .addon directory
-if (!Directory.Exists(addonDir))
+if (!Directory.Exists(config.AddonDir))
 {
-    Log.Information(Localizations.Current.INFO_CREATING_PACKAGED_ADDON_DIRECTORY, addonDir);
-    Directory.CreateDirectory(addonDir);
+    Log.Information(Localizations.Current.INFO_CREATING_PACKAGED_ADDON_DIRECTORY, config.AddonDir);
+    Directory.CreateDirectory(config.AddonDir);
 }
 foreach (var external in model.Externals ?? [])
 {
     ExternalRepo repo = external.Value;
 
-    string externalPath = Path.GetFullPath($"{externalDir}/{repo.ProjectName}");
-    string addonPath = Path.GetFullPath($"{addonDir}/{external.Key}");
+    string externalPath = Path.GetFullPath($"{config.ExternalDir}/{repo.ProjectName}");
+    string addonPath = Path.GetFullPath($"{config.AddonDir}/{external.Key}");
 
     if (Directory.Exists(addonPath))
     {
@@ -146,7 +95,7 @@ foreach (var external in model.Externals ?? [])
 
         Directory.CreateDirectory(exceptLastDirectory);
 
-        if (useLinks)
+        if (config.UseLinks)
         {
             ProcessStartInfo psi = new("ln", $"-s \"{externalPath}\" \"{addonPath}\"")
             {
@@ -168,7 +117,7 @@ foreach (var external in model.Externals ?? [])
         {
             try
             {
-                RepoManager.CopyDirectoryWithIgnore(cd, externalPath, addonPath, model.Ignore);
+                Utilities.CopyDirectoryWithIgnore(Environment.CurrentDirectory, externalPath, addonPath, model.Ignore);
             }
             catch (Exception ex)
             {
@@ -186,9 +135,9 @@ foreach (string path in model.PlainCopy ?? [])
 {
     // GetFullPath resolves children directories as parents if they have the same name, thus we need to use the current directory
     string source = Path.GetFullPath($"./{path}");
-    string destination = Path.GetFullPath($"{addonDir}/{path}");
+    string destination = Path.GetFullPath($"{config.AddonDir}/{path}");
 
-    if (useLinks)
+    if (config.UseLinks)
     {
         if (Directory.Exists(destination))
         {
@@ -218,7 +167,7 @@ foreach (string path in model.PlainCopy ?? [])
     {
         try
         {
-            RepoManager.CopyDirectoryWithIgnore(cd, source, destination, model.Ignore);
+            Utilities.CopyDirectoryWithIgnore(Environment.CurrentDirectory, source, destination, model.Ignore);
         }
         catch (Exception ex)
         {
@@ -230,12 +179,29 @@ foreach (string path in model.PlainCopy ?? [])
     }
 }
 
-// Tell the user the final commands they need to run
-Console.WriteLine($"\nRun the following commands to complete the move:");
-Console.WriteLine("(Replace WOW_ADDONS with the path to your World of Warcraft addons folder)\n");
-foreach (var move in model.MoveFolders ?? [])
+if (config.IsWoWDirValid)
 {
-    Console.WriteLine($"    ln -s {cd}/.addon/{move.Key} WOW_ADDONS/{move.Value}");
+    // TODO: Install the addon...
+
+    Console.WriteLine("This is suppose to install the addon, but my code isn't ready yet. You can manually run the following commands to complete the move:");
+
+    // Tell the user the final commands they need to run
+    Console.WriteLine($"\nRun the following commands to complete the move:");
+    Console.WriteLine("(Replace WOW_ADDONS with the path to your World of Warcraft addons folder)\n");
+    foreach (var move in model.MoveFolders ?? [])
+    {
+        Console.WriteLine($"    ln -s {Environment.CurrentDirectory}/.addon/{move.Key} YOUR_WOW_ADDONS/{move.Value}");
+    }
+}
+else
+{
+    // Tell the user the final commands they need to run
+    Console.WriteLine($"\nRun the following commands to complete the move:");
+    Console.WriteLine("(Replace WOW_ADDONS with the path to your World of Warcraft addons folder)\n");
+    foreach (var move in model.MoveFolders ?? [])
+    {
+        Console.WriteLine($"    ln -s {Environment.CurrentDirectory}/.addon/{move.Key} YOUR_WOW_ADDONS/{move.Value}");
+    }
 }
 
 Console.WriteLine("\nFinished");
