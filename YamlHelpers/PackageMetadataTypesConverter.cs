@@ -5,7 +5,7 @@ using YamlDotNet.Core.Events;
 namespace CFI.YamlHelpers;
 
 /// <summary>
-/// Converts an <see cref="ExternalRepo"/> object from YAML. This is required because the ExternalRepo represents can be a mapped object or just a scalar (the url)
+/// Converts an <see cref="ExternalRepo"/> object from YAML. This is required because the ExternalRepo can be a mapped object or just a scalar (the url)
 /// </summary>
 public class PackageMetadataTypesConverter : IYamlTypeConverter
 {
@@ -61,6 +61,7 @@ public class PackageMetadataTypesConverter : IYamlTypeConverter
         }
         else
         {
+            // Its not an object, get the simple scalar value as the url
             url = parser.TryConsume<Scalar>(out var scalar) ? scalar.Value : throw new Exception("Expected scalar");
         }
 
@@ -99,6 +100,7 @@ public class PackageMetadataTypesConverter : IYamlTypeConverter
         }
         else
         {
+            // Its not an object, get the simple scalar value as the filename
             filename = parser.TryConsume<Scalar>(out var scalar) ? scalar.Value : throw new Exception("Expected scalar");
         }
 

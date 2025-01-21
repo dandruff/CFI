@@ -5,11 +5,11 @@ namespace CFI.Models;
 [YamlSerializable(typeof(ExternalRepo))]
 public class ExternalRepo
 {
-    // Automatically determine the repository type when ExternalRepo created during deserialization
-    // This is done by running `git ls-remote` and `svn info` on the repository URL
-    // You need to await this property to get the result
     [YamlIgnore]
-    public Task<RepoTypes> RepoType => Utilities.GetRepoTypeAsync(Url);
+    public RepoTypes RepoType { get; set; }
+
+    [YamlIgnore]
+    public RepoTypes FullPath { get; set; }
 
     [YamlIgnore]
     public string? ProjectName { get; set; }

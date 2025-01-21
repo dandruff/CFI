@@ -1,7 +1,16 @@
 ﻿using System.Diagnostics;
+using System.Text;
 using CFI.Localization;
 using CFI.Models;
 using CFI.YamlHelpers;
+
+// Create a cancel token and connect it to ctrl+c
+CancellationTokenSource cts = new();
+Console.CancelKeyPress += (s, e) => {
+    e.Cancel = true;
+    cts.Cancel();
+};
+
 
 const string VERSION = "0.2.0";
 
@@ -66,8 +75,59 @@ if (!Directory.Exists(config.ExternalDir))
     Log.Information(Localizations.Current.INFO_CREATING_EXTERNAL_REPO_DIRECTORY, config.ExternalDir);
     _ = Directory.CreateDirectory(config.ExternalDir);
 }
+
+
+StringBuilder changelog = new();
+
 foreach (var external in model.Externals ?? [])
-    await Utilities.CloneRepoAsync(external.Value, config.ExternalDir);
+{
+    ExternalRepo repo = external.Value;
+    repo.ProjectName = Utilities.AttemptGetPackageName(external.Key);
+    string externalPath = Path.GetFullPath($"{config.ExternalDir}/{repo.ProjectName}");
+
+    // Check if we have already cloned this repo
+    if (Directory.Exists(externalPath))
+    {
+        try
+        {
+            // Use local methods to check if the repo is a git or svn repo
+            repo.RepoType = await Commands.CheckLocalUriRepoTypeAsync(externalPath, cts.Token);
+
+            // Save the current head (oldHead)
+            string oldHead = await Commands.HeadHashRepoAsync(repo.RepoType, externalPath, cts.Token);
+
+            // Pull the repo
+            await Commands.PullRepoAsync(repo.RepoType, externalPath, cts.Token);
+
+            // Save the new head (newHead)
+            string newHead = await Commands.HeadHashRepoAsync(repo.RepoType, externalPath, cts.Token);
+
+            // If the repo has changed, add the changes to the changelog
+            if (oldHead != newHead)
+            {
+                changelog.AppendLine($"  - {repo.ProjectName} updated from {oldHead} to {newHead}");
+                // Gets all the commits between the two hashes, we need to split it by new line and add to our changelog
+                foreach(string line in (await Commands.LogRepoAsync(repo.RepoType, oldHead, newHead, externalPath, cts.Token)).Split(Environment.NewLine))
+                    changelog.AppendLine($"    {line}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, Localizations.Current.ERROR_FAILED_REPO_CLONE, repo.ProjectName);
+        }
+    }
+    else
+    {
+        // Use remote methods to check if the repo is a git or svn repo
+        repo.RepoType = await Commands.CheckRemoteUriRepoTypeAsync(repo.Url, cts.Token);
+
+        // Clone the repo
+        await Commands.CloneRepoAsync(repo.RepoType, repo.Url, externalPath, cts.Token);
+    }
+}
+
+
+
 
 // package addon into .addon directory
 if (!Directory.Exists(config.AddonDir))

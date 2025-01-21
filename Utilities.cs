@@ -8,7 +8,7 @@ namespace CFI;
 public static class Utilities
 {
     // A pretty basic method that tries to get the name from the URL
-    private static string AttemptGetPackageName(string url)
+    public static string AttemptGetPackageName(string url)
     {
         string[] parts = url.Replace("/trunk", "").Split('/');
         string name = parts[^1].Replace(".git", "").Replace(".svn", "");
@@ -51,6 +51,99 @@ public static class Utilities
 
                 return repoType;
             });
+
+    private static Task<RepoTypes> CheckLocalRepoType(string directory)
+    {
+        ProcessStartInfo gitInfo = new("git", "rev-parse --is-inside-work-tree")
+        {
+            WorkingDirectory = directory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+
+        Process gitProcess = Process.Start(gitInfo)!;
+        string gitOutput = gitProcess.StandardOutput.ReadToEnd();
+        gitProcess.WaitForExit();
+
+        if (gitProcess.ExitCode == 0)
+        {
+            return Task.FromResult(RepoTypes.Git);
+        }
+
+        ProcessStartInfo svnInfo = new("svn", "info")
+        {
+            WorkingDirectory = directory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+
+        Process svnProcess = Process.Start(svnInfo)!;
+        string svnOutput = svnProcess.StandardOutput.ReadToEnd();
+        svnProcess.WaitForExit();
+
+        if (svnProcess.ExitCode == 0)
+        {
+            return Task.FromResult(RepoTypes.Svn);
+        }
+
+        return Task.FromResult(RepoTypes.Unknown);
+    }
+
+    public static async Task UpdateOrCloneAsync(ExternalRepo repo, string directory)
+    {
+        if (Directory.Exists(directory))
+        {
+            // Check if the directory is a Git repository with git rev-parse --is-inside-work-tree
+            ProcessStartInfo gitInfo = new("git", "rev-parse --is-inside-work-tree")
+            {
+                WorkingDirectory = directory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            };
+
+            Process gitProcess = Process.Start(gitInfo)!;
+            string gitOutput = gitProcess.StandardOutput.ReadToEnd();
+            gitProcess.WaitForExit();
+
+            if (gitProcess.ExitCode == 0)
+            {
+                // The directory is a Git repository, so we can use git pull
+                ProcessStartInfo gitPullInfo = new("git", "pull")
+                {
+                    WorkingDirectory = directory,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                };
+
+                Process gitPullProcess = Process.Start(gitPullInfo)!;
+                string gitPullOutput = gitPullProcess.StandardOutput.ReadToEnd();
+                gitPullProcess.WaitForExit();
+
+                if (gitPullProcess.ExitCode != 0)
+                {
+                    Log.Error(Localizations.Current.ERROR_FAILED_REPO_CLONE, repo.ProjectName);
+                    Console.WriteLine($"\n{gitPullProcess.StandardError.ReadToEnd()}\n");
+                }
+                else
+                {
+                    Log.Information(Localizations.Current.INFO_SUCCESSFULLY_CLONED_REPO, repo.ProjectName);
+                }
+            }
+            else
+            {
+                // The directory is not a Git repository, so we can't update it
+                Log.Warning(Localizations.Current.WARNING_FOLDER_NOT_GIT_REPO_SKIPPING, repo.ProjectName);
+            }
+        }
+        else
+        {
+            await CloneRepoAsync(repo, directory);
+        }
+    }
 
     public static async Task CloneRepoAsync(ExternalRepo repo, string directory)
     {
